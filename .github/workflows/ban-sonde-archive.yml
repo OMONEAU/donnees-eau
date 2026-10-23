@@ -1,0 +1,26 @@
+# Sonde (23/10/2026) : nature de l'archive historisée de la BAN sur transport.data.gouv.fr (ressource 82638), sans rien
+# publier. Résultats en annotations : code, taille, type, premières lignes.
+name: BAN sonde archive transport
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        required: true
+        default: "https://transport-data-gouv-fr-resource-history-prod.cellar-c2.services.clever-cloud.com/82638/82638.20261021.063601.599279.csv"
+jobs:
+  sonde:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Sonder
+        env:
+          U: ${{ inputs.url }}
+        run: |
+          set +e
+          c=$(curl -sSL -D h.txt -o f.bin -w '%{http_code} %{size_download} %{content_type}' --max-time 600 "$U")
+          echo "::notice::code taille type : $c"
+          echo "::notice::en-têtes : $(tr '\r\n' '  ' < h.txt | head -c 700)"
+          echo "::notice::file : $(file -b f.bin) ; SHA-256 $(sha256sum f.bin | cut -c1-64)"
+          if gzip -t f.bin 2>/dev/null; then zcat f.bin | head -3 > debut.txt; n=$(zcat f.bin | wc -l); else head -c 3000 f.bin | head -3 > debut.txt; n=$(wc -l < f.bin); fi
+          echo "::notice::lignes : $n"
+          echo "::notice::début : $(tr '\n' '|' < debut.txt | head -c 900)"
