@@ -2,3 +2,4 @@
 # Modifier ce fichier lance le programme .github/workflows/ban-departement.yml.
 departement=44
 serie=weekly
+# essai 2 : 23/10/2026, requête GET unique
