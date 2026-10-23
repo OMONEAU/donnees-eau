@@ -1,0 +1,72 @@
+# Transfert d'un fichier départemental de la Base Adresse Nationale (BAN) vers une publication GitHub (Release).
+# Test du 23/10/2026 : Loire-Atlantique (44) d'abord ; généralisation seulement après validation indépendante.
+# Contraintes : aucune dépense (organisation OMONEAU, offre gratuite, budgets à 0 $), pas de Git LFS, aucun artifact Actions :
+# le fichier va directement dans la Release, avec son manifeste (provenance, date, taille, SHA-256).
+# Source officielle : https://adresse.data.gouv.fr/data/ban/adresses/weekly/csv-with-ids/ (export hebdomadaire, remplacé
+# chaque semaine : la Release le fige, sous son nom daté). Licence de la BAN : Licence Ouverte Etalab 2.0.
+name: BAN departement vers Release
+on:
+  push:
+    branches: [main]
+    paths: ["ban/DEMANDE_TRANSFERT.txt"]
+  workflow_dispatch:
+    inputs:
+      dept:
+        description: "Code du departement (44, 2A, 971...)"
+        required: true
+        default: "44"
+      serie:
+        description: "Serie BAN : weekly (hebdomadaire) ou latest"
+        required: true
+        default: "weekly"
+permissions:
+  contents: write
+jobs:
+  transfert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Telecharger, controler, publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPT_SAISI: ${{ inputs.dept }}
+          SERIE_SAISIE: ${{ inputs.serie }}
+        run: |
+          set -euo pipefail
+          # lancement manuel : valeurs saisies ; lancement par dépôt de ban/DEMANDE_TRANSFERT.txt : valeurs lues dans ce fichier
+          if [ -n "${DEPT_SAISI:-}" ]; then DEPT="$DEPT_SAISI"; SERIE="${SERIE_SAISIE:-weekly}"; else
+            DEPT=$(grep -E '^departement=' ban/DEMANDE_TRANSFERT.txt | cut -d= -f2 | tr -d '[:space:]')
+            SERIE=$(grep -E '^serie=' ban/DEMANDE_TRANSFERT.txt | cut -d= -f2 | tr -d '[:space:]'); fi
+          debut=$(date -u +%s)
+          F="adresses-with-ids-${DEPT}.csv.gz"
+          URL="https://adresse.data.gouv.fr/data/ban/adresses/${SERIE}/csv-with-ids/${F}"
+          curl -fsSI "$URL" > entetes.txt
+          LM=$(grep -i '^last-modified:' entetes.txt | cut -d' ' -f2- | tr -d '\r')
+          ET=$(grep -i '^etag:' entetes.txt | cut -d' ' -f2- | tr -d '\r' || true)
+          JOUR=$(date -u -d "$LM" +%Y-%m-%d)
+          TAG="BAN-${JOUR}"
+          curl -fsSL --retry 3 -o "$F" "$URL"
+          gzip -t "$F"
+          SHA=$(sha256sum "$F" | cut -d' ' -f1)
+          OCT=$(stat -c %s "$F")
+          LIGNES=$(zcat "$F" | wc -l)
+          ENTETE=$(zcat "$F" | head -1)
+          fin=$(date -u +%s)
+          M="MANIFESTE_${F%.csv.gz}.json"
+          python3 - "$M" <<PY
+          import json, sys
+          json.dump({"fichier": "$F", "source": "$URL", "serie": "$SERIE", "departement": "$DEPT",
+                     "last_modified_serveur": "$LM", "etag_serveur": "$ET", "telecharge_le_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+                     "octets": $OCT, "sha256": "$SHA", "lignes_avec_entete": $LIGNES, "entete": "$ENTETE",
+                     "duree_telechargement_et_controle_s": $((fin - debut)), "licence": "Licence Ouverte Etalab 2.0",
+                     "execution": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"},
+                    open(sys.argv[1], "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+          PY
+          cat "$M"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Base Adresse Nationale, export du $JOUR" \
+              --notes "Fichiers départementaux de la BAN (adresse.data.gouv.fr, série ${SERIE}, CSV avec identifiants), figés tels que publiés à la date du serveur ($LM). Licence Ouverte Etalab 2.0. Chaque fichier a son manifeste (provenance, taille, SHA-256)."
+          fi
+          gh release upload "$TAG" "$F" "$M" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "Publié : $TAG / $F ; SHA-256 $SHA ; $OCT octets ; $LIGNES lignes ; $((fin - debut)) s"

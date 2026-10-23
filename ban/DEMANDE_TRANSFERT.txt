@@ -1,0 +1,4 @@
+# Demande de transfert d'un fichier départemental de la Base Adresse Nationale vers une publication (Release) de ce dépôt.
+# Modifier ce fichier lance le programme .github/workflows/ban-departement.yml.
+departement=44
+serie=weekly
