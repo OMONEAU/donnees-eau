@@ -1,0 +1,22 @@
+# Diagnostic d'accès au site de la BAN depuis GitHub Actions (23/10/2026) : codes de réponse de plusieurs adresses officielles,
+# remontés en annotations. Ne télécharge rien durablement.
+name: BAN diagnostic acces
+on:
+  workflow_dispatch:
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Codes de reponse
+        run: |
+          B=https://adresse.data.gouv.fr/data/ban/adresses
+          for u in "$B/" "$B/weekly/csv-with-ids/" "$B/latest/csv-with-ids/adresses-with-ids-44.csv.gz" \
+                   "$B/weekly/csv-with-ids/adresses-with-ids-44.csv.gz" "$B/2026-09-30/csv-with-ids/adresses-with-ids-44.csv.gz" \
+                   "https://www.data.gouv.fr/api/1/datasets/r/481c073d-28f5-41ce-8956-eb28136f8495" "https://adresse.data.gouv.fr/"; do
+            for opt in "-4" "-6"; do
+              c=$(curl $opt -s -o /dev/null -r 0-1023 -A "Mozilla/5.0 (compatible; OMONEAU-donnees-eau)" -w '%{http_code} %{remote_ip} %{url_effective}' -L --max-time 30 "$u" || echo "echec-$?")
+              echo "::notice::$opt $u -> $c"
+            done
+          done
+          curl -s -o /dev/null -w '%{http_code}' https://api.ipify.org > /dev/null; echo "::notice::IP sortante : $(curl -s https://api.ipify.org)"
