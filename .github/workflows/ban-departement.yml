@@ -9,6 +9,10 @@ on:
   push:
     branches: [main]
     paths: ["ban/DEMANDE_TRANSFERT.txt"]
+  # 23/10/2026 : le site de la BAN répond « 503 » aux machines de GitHub ; nouvel essai automatique toutes les deux heures
+  # tant que le fichier demandé n'est pas publié (chaque essai inutile s'arrête en quelques secondes)
+  schedule:
+    - cron: "17 */2 * * *"
   workflow_dispatch:
     inputs:
       dept:
@@ -38,6 +42,11 @@ jobs:
           if [ -n "${DEPT_SAISI:-}" ]; then DEPT="$DEPT_SAISI"; SERIE="${SERIE_SAISIE:-weekly}"; else
             DEPT=$(grep -E '^departement=' ban/DEMANDE_TRANSFERT.txt | cut -d= -f2 | tr -d '[:space:]')
             SERIE=$(grep -E '^serie=' ban/DEMANDE_TRANSFERT.txt | cut -d= -f2 | tr -d '[:space:]'); fi
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ] && gh release list --repo "$GITHUB_REPOSITORY" --limit 100 | grep -q '^Base Adresse Nationale' \
+             && for t in $(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --json tagName -q '.[].tagName' | grep '^BAN-'); do
+                  gh release view "$t" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | grep -qx "adresses-with-ids-${DEPT}.csv.gz" && exit 0; done; false; then
+            echo "::notice::Déjà publié : rien à faire"; exit 0
+          fi
           debut=$(date -u +%s)
           F="adresses-with-ids-${DEPT}.csv.gz"
           URL="https://adresse.data.gouv.fr/data/ban/adresses/${SERIE}/csv-with-ids/${F}"
