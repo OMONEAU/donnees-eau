@@ -1,0 +1,31 @@
+# Annexes eau potable des documents d'urbanisme (Géoportail de l'urbanisme), pour la vérification adresse → réseau.
+name: Collecte annexes eau GPU
+on:
+  workflow_dispatch:
+    inputs:
+      lot:
+        required: true
+        default: "gpu"
+      communes:
+        description: "insee:lon,lat séparés par des espaces"
+        required: true
+permissions:
+  contents: write
+jobs:
+  gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collecter et publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOT: ${{ inputs.lot }}
+          COMMUNES: ${{ inputs.communes }}
+        run: |
+          python3 collecte/gpu_annexes_eau.py "$COMMUNES"
+          cd out && for f in *; do mv "$f" "${LOT}__$(echo "$f" | tr -c 'A-Za-z0-9._-' '_')"; done; cd ..
+          TAG="COLLECTE-$(date -u +%Y-%m-%d)"
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "Collecte de sources du $(date -u +%d/%m/%Y)" --notes "Sources publiques pour la vérification adresse → réseau d'eau."
+          gh release upload "$TAG" out/* --clobber
+          echo "::notice::$(ls out | wc -l) fichiers publiés dans $TAG"
