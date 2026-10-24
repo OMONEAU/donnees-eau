@@ -1,0 +1,46 @@
+# Collecte de sources publiques officielles pour la vérification adresse → réseau (24/10/2026). Le programme télécharge
+# une liste d'adresses web (une par ligne dans collecte/LISTE.txt, ou saisie au lancement) et publie chaque fichier, avec
+# un index (adresse d'origine, code de réponse, date du serveur, taille, SHA-256), dans la publication « COLLECTE-<date> ».
+name: Collecte de sources
+on:
+  workflow_dispatch:
+    inputs:
+      lot:
+        description: "Nom du lot (lettres, chiffres, tirets)"
+        required: true
+        default: "essai"
+      urls:
+        description: "Adresses séparées par des espaces (sinon collecte/LISTE.txt)"
+        required: false
+permissions:
+  contents: write
+jobs:
+  collecte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Telecharger et publier
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOT: ${{ inputs.lot }}
+          URLS: ${{ inputs.urls }}
+        run: |
+          set -u
+          mkdir -p out; i=0
+          if [ -n "${URLS:-}" ]; then echo "$URLS" | tr ' ' '\n' > liste.txt; else grep -v '^#' collecte/LISTE.txt | sed '/^$/d' > liste.txt; fi
+          echo "n;url;code;last_modified;octets;sha256;fichier" > out/INDEX_${LOT}.csv
+          while read -r u; do
+            i=$((i+1)); f=$(printf "%s_%03d" "$LOT" "$i")
+            c=$(curl -sSL --retry 2 --max-time 120 -A "Mozilla/5.0 (OMONEAU verification)" -D h.txt -o "out/$f" -w '%{http_code}' "$u" || echo "echec")
+            lm=$(grep -i '^last-modified:' h.txt | tail -1 | cut -d' ' -f2- | tr -d '\r;')
+            ct=$(grep -i '^content-type:' h.txt | tail -1 | cut -d' ' -f2- | tr -d '\r;' | cut -d' ' -f1)
+            case "$ct" in *pdf*) e=pdf;; *json*) e=json;; *html*) e=html;; *zip*) e=zip;; *xml*) e=xml;; *) e=bin;; esac
+            mv "out/$f" "out/$f.$e" 2>/dev/null || true
+            s=$(sha256sum "out/$f.$e" 2>/dev/null | cut -c1-64); o=$(stat -c %s "out/$f.$e" 2>/dev/null || echo 0)
+            echo "$i;$u;$c;$lm;$o;$s;$f.$e" >> out/INDEX_${LOT}.csv
+          done < liste.txt
+          TAG="COLLECTE-$(date -u +%Y-%m-%d)"
+          gh release view "$TAG" > /dev/null 2>&1 || gh release create "$TAG" --title "Collecte de sources du $(date -u +%d/%m/%Y)" --notes "Sources publiques téléchargées pour la vérification adresse → réseau d'eau ; voir les fichiers INDEX_*.csv (adresse d'origine, date, empreinte)."
+          gh release upload "$TAG" out/* --clobber
+          echo "::notice::$i adresses traitées ; publication $TAG"
