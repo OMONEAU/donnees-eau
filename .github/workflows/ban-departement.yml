@@ -64,7 +64,10 @@ jobs:
           SHA=$(sha256sum "$F" | cut -d' ' -f1)
           OCT=$(stat -c %s "$F")
           LIGNES=$(zcat "$F" | wc -l)
-          ENTETE=$(zcat "$F" | head -1)
+          # 20/11/2026 : lire l'en-tête avec « sed -n 1p » et non « head -1 » : head referme le tube après la 1re ligne,
+          # zcat reçoit alors SIGPIPE et, sous « set -o pipefail », tout le job échoue (« gzip: stdout: Broken pipe »).
+          # sed -n 1p lit tout le flux (zcat se termine normalement), donc aucune rupture de tube sur un gros fichier.
+          ENTETE=$(zcat "$F" | sed -n '1p')
           fin=$(date -u +%s)
           M="MANIFESTE_${F%.csv.gz}.json"
           python3 - "$M" <<PY
